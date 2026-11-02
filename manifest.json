@@ -10,20 +10,36 @@
    "background": {
       "service_worker": "background.js"
    },
-   "content_scripts": [ {
-      "js": [ "firebase-app-compat.js", "firebase-firestore-compat.js", "content.js" ],
-      "matches": [ "*://facebook.com/*", "*://*.facebook.com/*" ],
-      "run_at": "document_idle"
-   } ],
+   "content_scripts": [
+      {
+         "js": [
+            "firebase-app-compat.js",
+            "firebase-firestore-compat.js",
+            "content.js"
+         ],
+         "matches": [
+            "*://facebook.com/*",
+            "*://*.facebook.com/*"
+         ],
+         "run_at": "document_idle"
+      }
+   ],
    "content_security_policy": {
       "extension_pages": "script-src 'self'; object-src 'self';"
    },
    "default_locale": "en",
    "description": "__MSG_extDescription__",
    "externally_connectable": {
-      "matches": [ "https://auth.fbgroupbulkposter.com/*", "http://localhost:3000/*", "http://localhost:5000/*" ]
+      "matches": [
+         "https://auth.fbgroupbulkposter.com/*",
+         "http://localhost:3000/*",
+         "http://localhost:5000/*"
+      ]
    },
-   "host_permissions": [ "https://*/*", "http://*/*" ],
+   "host_permissions": [
+      "https://*/*",
+      "http://*/*"
+   ],
    "icons": {
       "128": "assets/logo.png",
       "16": "assets/logo.png",
@@ -34,14 +50,38 @@
    "name": "__MSG_extName__",
    "oauth2": {
       "client_id": "315865406417-ubtfoajkpdt3a9odshck2kttb33jf6mk.apps.googleusercontent.com",
-      "scopes": [ "email", "profile", "openid" ]
+      "scopes": [
+         "email",
+         "profile",
+         "openid"
+      ]
    },
-   "permissions": [ "storage", "cookies", "system.display", "tabs", "scripting" ],
+   "permissions": [
+      "storage",
+      "cookies",
+      "system.display",
+      "tabs",
+      "scripting"
+   ],
    "update_url": "https://clients2.google.com/service/update2/crx",
-   "version": "1.19.7",
-   "version_name": "1.19.5 premium credit fix",
-   "web_accessible_resources": [ {
-      "matches": [ "https://*/*", "http://*/*" ],
-      "resources": [ "firebase-app-compat.js", "firebase-firestore-compat.js", "domselector.config.json" ]
-   } ]
+   "version": "1.20.0",
+   "version_name": "1.20.0 comment-scraper mode",
+   "web_accessible_resources": [
+      {
+         "matches": [
+            "https://*/*",
+            "http://*/*"
+         ],
+         "resources": [
+            "firebase-app-compat.js",
+            "firebase-firestore-compat.js",
+            "domselector.config.json"
+         ]
+      }
+   ],
+   "options_page": "scraper.html",
+   "options_ui": {
+      "page": "scraper.html",
+      "open_in_tab": true
+   }
 }

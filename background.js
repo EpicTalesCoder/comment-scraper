@@ -3456,3 +3456,139 @@ chrome.runtime.onMessageExternal.addListener((request, sender, sendResponse) => 
   
   sendResponse({ success: false, message: "Unknown action" });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// COMMENT SCRAPER MODE — background orchestration (giu nguyen co che pause giua cac group)
+// ═══════════════════════════════════════════════════════════════════════════
+
+let isScrapeRunning = false;
+
+async function initiateScrapePostsAction(request) {
+  const urls = request.payload.urls || [];
+  const options = request.payload.options || {};
+  const timeInSeconds = typeof request.payload.timeInSeconds === 'number' ? request.payload.timeInSeconds : 30;
+
+  updatePostingProgress('started');
+  updatePostingStatus(`Start scraping ${urls.length} pages`);
+
+  chrome.storage.local.set({
+    showModal: true,
+    modalHiddenByUser: false,
+    isPostingInProgress: 'started',
+    scrapeResults: [],
+  });
+
+  const allResults = [];
+
+  for (let i = 0; i < urls.length; i++) {
+    if (state.isStopRequested) break;
+    const url = urls[i];
+    updatePostingStatus(`Scraping ${i + 1} / ${urls.length}: ${url}`);
+
+    let tab;
+    try {
+      tab = await createTabWithRetry(url);
+    } catch (error) {
+      console.error(`[Scrape] Failed to create tab for ${url}. Skipping.`, error);
+      allResults.push({ url, error: 'Tab creation failed', posts: [] });
+      continue;
+    }
+
+    let ok = false;
+    try {
+      await clearOperationDone();
+      // Xoa ket qua cu
+      await new Promise((resolve) => chrome.storage.local.remove(['scrapedPosts'], resolve));
+      await checkContentScriptReady(tab.id);
+      await new Promise((resolve, reject) => {
+        chrome.tabs.sendMessage(tab.id, { action: 'contentScrapePosts', options }, (resp) => {
+          if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+          else resolve(resp);
+        });
+      });
+      // Cho content script hoan thanh (giong handleResponse nhung doi key scrapedPosts)
+      let timeTaken = 0;
+      while (true) {
+        if (state.isStopRequested) break;
+        const result = await new Promise((resolve) => chrome.storage.local.get(['operationDone', 'scrapedPosts'], resolve));
+        if (result.operationDone === 'failed') { ok = false; break; }
+        if (result.operationDone === 'successful') {
+          ok = true;
+          const posts = result.scrapedPosts || [];
+          allResults.push({ url, posts });
+          updatePostingStatus(`Scraped ${posts.length} posts from ${url}`);
+          break;
+        }
+        await sleep(1);
+        timeTaken++;
+        if (timeTaken > 300) { ok = false; break; } // 5p timeout/URL
+      }
+    } catch (error) {
+      console.error('[Scrape] Flow failed for', url, error);
+      allResults.push({ url, error: String(error?.message || error), posts: [] });
+    }
+
+    // Cleanup tab (giong cleanUpAfterPosting)
+    await cleanUpAfterPosting(tab.id);
+
+    // PAUSE giua cac URL — dung dung co che waitBeforeNextPost cua posting flow
+    if (i + 1 < urls.length && !state.isStopRequested) {
+      console.log(`[Scrape] Waiting before next URL (${i + 2}/${urls.length})...`);
+      // Custom delivery: dung dung timeInSeconds ma user nhap (batchSize=1 -> moi URL deu cho)
+      const deliveryOpts = {
+        isCustom: true,
+        mode: 'throttled',
+        batchSize: 1,
+        waitMinutes: timeInSeconds / 60,
+        randomizeWait: options.randomizeWait !== false,
+      };
+      await waitBeforeNextPost(timeInSeconds, i, urls.length, deliveryOpts);
+    }
+    await sleep(1);
+  }
+
+  // Luu ket qua
+  chrome.storage.local.set({
+    scrapeResults: allResults,
+    isPostingInProgress: 'done',
+    showModal: true,
+    modalHiddenByUser: false,
+  }, () => {});
+  updatePostingStatus(`Scraping completed. ${allResults.reduce((a, r) => a + (r.posts?.length || 0), 0)} posts total.`);
+  updatePostingProgress('done');
+  isScrapeRunning = false;
+}
+
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg.action === 'startScrapePosts') {
+    if (isScrapeRunning) {
+      sendResponse({ success: false, message: 'Scrape already running' });
+      return true;
+    }
+    isScrapeRunning = true;
+    state.isStopRequested = false;
+    initiateScrapePostsAction(msg)
+      .catch((err) => console.error('[Scrape] error:', err))
+      .finally(() => { isScrapeRunning = false; });
+    sendResponse({ success: true });
+    return true;
+  }
+  if (msg.action === 'stopScrapePosts') {
+    state.isStopRequested = true;
+    // Thong bao cho content script dang chay
+    chrome.tabs.query({}, (tabs) => {
+      tabs.forEach((t) => {
+        chrome.tabs.sendMessage(t.id, { action: 'stopScrapePosts' }, () => {
+          void chrome.runtime.lastError;
+        });
+      });
+    });
+    sendResponse({ success: true });
+    return true;
+  }
+  if (msg.action === 'openScrapeUI') {
+    chrome.tabs.create({ url: chrome.runtime.getURL('scraper.html') });
+    sendResponse({ success: true });
+    return true;
+  }
+});

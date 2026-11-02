@@ -3104,3 +3104,245 @@ chrome.runtime.onMessage.addListener(function (msg) {
 
 // Marker
 window.__myExtensionContentLoaded = true;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// COMMENT SCRAPER MODE — scrape posts + comments from Facebook groups/pages
+// ═══════════════════════════════════════════════════════════════════════════
+
+let __scraperActive = false;
+let __scraperAbort = false;
+const SCRAPE_SCROLL_STEP_DELAY_MS = 2500;
+const SCRAPE_MAX_SCROLLS_DEFAULT = 10;
+const SCRAPE_COMMENTS_LOAD_CLICKS_MAX = 30;
+
+function __scraperLog(msg) {
+  try { console.log('[scraper]', msg); } catch (_) {}
+}
+
+// Mo rong "See more" trong 1 post (dung lai ham co san expandSeeMore)
+function __scraperExpandAllSeeMore(root) {
+  try {
+    const els = Array.from(root.querySelectorAll('div,span,a')).filter(
+      (el) => (el.innerText || '').trim() === 'See more' || (el.innerText || '').trim() === 'Xem thêm'
+    );
+    els.forEach((e) => e.click());
+    return els.length;
+  } catch (_) { return 0; }
+}
+
+// Tim phan tu chua comment: aria-label bat dau bang "Comment" hoac "Bình luận"
+function __scraperFindCommentContainers(root) {
+  const results = [];
+  try {
+    const candidates = root.querySelectorAll('div[aria-label]');
+    for (const el of candidates) {
+      const label = (el.getAttribute('aria-label') || '').toLowerCase();
+      if (
+        label.startsWith('comment by') || label.startsWith('bình luận của') ||
+        label.startsWith('reply by') || label.startsWith('phản hồi của')
+      ) {
+        results.push(el);
+      }
+    }
+  } catch (_) {}
+  return results;
+}
+
+// Click "Load more comments"/"View more comments"/"Xem thêm bình luận" de load them
+async function __scraperExpandComments(root, maxClicks = SCRAPE_COMMENTS_LOAD_CLICKS_MAX) {
+  let clicks = 0;
+  const selectors = [
+    'span[dir="auto"]',
+    'div[role="button"]',
+    'a',
+  ];
+  const wanted = [
+    'view more comments', 'load more comments', 'view previous comments',
+    'see more comments', 'more replies',
+    'xem thêm bình luận', 'tải thêm bình luận', 'xem các bình luận trước đó', 'câu trả lời khác',
+  ];
+  while (clicks < maxClicks && !__scraperAbort) {
+    let clicked = false;
+    outer:
+    for (const sel of selectors) {
+      const els = Array.from(root.querySelectorAll(sel));
+      for (const el of els) {
+        const t = (el.innerText || '').trim().toLowerCase();
+        if (t && wanted.some(w => t === w || t.startsWith(w))) {
+          try {
+            el.scrollIntoView({ block: 'center' });
+            await new Promise(r => setTimeout(r, 300));
+            el.click();
+            clicked = true;
+            clicks++;
+            await new Promise(r => setTimeout(r, 1200));
+            break outer;
+          } catch (_) {}
+        }
+      }
+    }
+    if (!clicked) break;
+  }
+  return clicks;
+}
+
+// Lay comment tu 1 post element
+async function __scraperExtractComments(postEl, opts = {}) {
+  const comments = [];
+  try {
+    // Tim nut mo khung binh luan (Comment / Bình luận) — click de mo comment
+    const commentButtons = Array.from(postEl.querySelectorAll('div[role="button"], span')).filter((el) => {
+      const t = (el.innerText || '').trim().toLowerCase();
+      return /^(\d+)\s*(comments|bình luận)$/.test(t) || t === 'comment' || t === 'bình luận';
+    });
+    if (commentButtons.length && opts.openComments !== false) {
+      try { commentButtons[0].click(); await new Promise(r => setTimeout(r, 1500)); } catch (_) {}
+    }
+
+    // Mo rong binh luan
+    await __scraperExpandComments(postEl, opts.maxCommentClicks ?? SCRAPE_COMMENTS_LOAD_CLICKS_MAX);
+
+    const containers = __scraperFindCommentContainers(postEl);
+    const seen = new Set();
+    for (const c of containers) {
+      if (__scraperAbort) break;
+      try {
+        const label = c.getAttribute('aria-label') || '';
+        // Author la phan dau cua label: "Comment by NAME" / "Bình luận của NAME"
+        let author = '';
+        const m = label.match(/^(?:comment by|bình luận của|reply by|phản hồi của)\s+(.+)$/i);
+        if (m) author = m[1].trim();
+        const text = (c.innerText || '').trim();
+        if (!text) continue;
+        // Bo phan header trung author
+        const body = author ? text.replace(new RegExp('^' + author.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\n?'), '') : text;
+        const key = author + '::' + body.slice(0, 80);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        comments.push({ author, text: body });
+      } catch (_) {}
+    }
+  } catch (_) {}
+  return comments;
+}
+
+// Lay thong tin 1 post tu element
+function __scraperExtractPost(postEl) {
+  try {
+    // Link bai viet: tim <a> co href chua /posts/ hoac /permalink/ hoac /videos/ hoac /photo
+    let postUrl = '';
+    const links = postEl.querySelectorAll('a[href]');
+    for (const a of links) {
+      const href = a.href || '';
+      if (/facebook\.com\/.*(\/posts\/|\/permalink\/|\/videos\/|\/photos?\/|\/reel\/)/.test(href)) {
+        postUrl = href.split('?')[0];
+        break;
+      }
+    }
+
+    // Noi dung: thu contentSelectors tu config, sau do fallback div[dir="auto"]
+    let content = '';
+    const sels = (config && config.contentSelectors) || defaultConfig.contentSelectors;
+    for (const sel of sels) {
+      const els = postEl.querySelectorAll(sel);
+      for (const el of els) {
+        const t = (el.innerText || '').trim();
+        if (t && t.length > content.length) content = t;
+      }
+    }
+
+    // Anh
+    const images = [];
+    postEl.querySelectorAll('img[src]').forEach((img) => {
+      const src = img.src || '';
+      if (src.includes('scontent') && !src.includes('profile')) images.push(src.split('&')[0] + '...');
+    });
+
+    // So comment / like
+    let numComments = null;
+    const cm = (postEl.innerText || '').match(/(\d[\d.,]*)\s*(comments|bình luận)/i);
+    if (cm) numComments = parseInt(cm[1].replace(/[.,]/g, ''), 10);
+    let numReactions = null;
+    const rm = (postEl.innerText || '').match(/(\d[\d.,]*)\s*(reactions|likes|lượt|thích)/i);
+    if (rm) numReactions = parseInt(rm[1].replace(/[.,]/g, ''), 10);
+
+    return { postUrl, content, images, numComments, numReactions };
+  } catch (e) {
+    return { postUrl: '', content: '', images: [], numComments: null, numReactions: null };
+  }
+}
+
+// Cao du lieu 1 trang: scroll n lan de load them bai viet
+async function __scraperScrapeCurrentPage(opts = {}) {
+  const { maxScrolls = SCRAPE_MAX_SCROLLS_DEFAULT, scrollDelayMs = SCRAPE_SCROLL_STEP_DELAY_MS, withComments = true, maxCommentClicks = SCRAPE_COMMENTS_LOAD_CLICKS_MAX } = opts;
+  const feedSel = (config && config.postSelector) || defaultConfig.postSelectors[0];
+  const seen = new Set();
+  const posts = [];
+
+  const collectOnce = async () => {
+    const postEls = Array.from(document.querySelectorAll(feedSel));
+    for (const postEl of postEls) {
+      if (__scraperAbort) break;
+      try {
+        __scraperExpandAllSeeMore(postEl);
+        await new Promise(r => setTimeout(r, 400));
+        const { postUrl, content, images, numComments, numReactions } = __scraperExtractPost(postEl);
+        if (!content && !postUrl) continue; // bo qua element rac
+        const key = postUrl || (location.href.split('?')[0] + '::' + content.slice(0, 120));
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const post = { postUrl, content, images, numComments, numReactions, comments: [] };
+        if (withComments) {
+          post.comments = await __scraperExtractComments(postEl, { maxCommentClicks });
+        }
+        posts.push(post);
+        __scraperLog(`Scraped post ${posts.length}: ${content.slice(0, 60)}... (${post.comments.length} comments)`);
+      } catch (_) {}
+    }
+  };
+
+  // Cho feed xuat hien
+  for (let i = 0; i < 20 && !__scraperAbort; i++) {
+    if (document.querySelector(feedSel)) break;
+    await new Promise(r => setTimeout(r, 1000));
+  }
+
+  await collectOnce();
+  for (let s = 0; s < maxScrolls && !__scraperAbort; s++) {
+    window.scrollBy({ top: document.body.scrollHeight, behavior: 'instant' });
+    await new Promise(r => setTimeout(r, scrollDelayMs));
+    await collectOnce();
+    try {
+      const progress = { scraperProgress: { scroll: s + 1, maxScrolls, postsSoFar: posts.length } };
+      chrome.storage.local.set(progress);
+    } catch (_) {}
+  }
+  return posts;
+}
+
+// Handler chinh
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg.action === 'contentScrapePosts') {
+    (async () => {
+      try {
+        __scraperActive = true;
+        __scraperAbort = false;
+        const opts = msg.options || {};
+        const posts = await __scraperScrapeCurrentPage(opts);
+        chrome.storage.local.set({ operationDone: 'successful', scrapedPosts: posts }, () => {});
+      } catch (e) {
+        __scraperLog('error: ' + e.message);
+        chrome.storage.local.set({ operationDone: 'failed', scrapedPosts: [] }, () => {});
+      } finally {
+        __scraperActive = false;
+      }
+    })();
+    sendResponse({ accepted: true });
+    return false;
+  }
+  if (msg.action === 'stopScrapePosts') {
+    __scraperAbort = true;
+    sendResponse({ accepted: true });
+    return false;
+  }
+});
