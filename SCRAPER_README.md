@@ -1,8 +1,19 @@
-# Facebook Comment Scraper (v1.22.0 — SCRAPER-ONLY)
+# Facebook Comment Scraper (v1.23.0 — ALL COMMENTS + 2-COL CSV)
 
 Fork tu "Facebook Groups Bulk Poster & Scheduler" v1.19.7. Tu v1.21.0 da GO BO
-DANG BAI hoan toan; v1.22.0 quet sach: content script chi con ~390 dong,
-KHONG con telemetry (Sentry/Mixpanel), khong remote config, khong Firebase.
+DANG BAI hoan toan; khong con telemetry (Sentry/Mixpanel), khong remote config,
+khong Firebase.
+
+## Moi o v1.23.0
+- MO TUNG BAI VIET RA khi quet: voi moi bai trong feed, scraper tu bam nut
+  "N binh luan" mo khung comment cua bai (chinh la view cua bai viet), khong con
+  chi doc tap hop comment inline tren feed nua.
+- TU CHON FILTER "All comments" / "Tat ca binh luan": FB mac dinh hien
+  "Most relevant"/"Phu hop nhat" -> thieu comment. Scraper mo dropdown filter va
+  chon "All comments" TRUOC khi quet (ho tro ca tieng Anh + tieng Viet).
+- Xuat CSV 2 cot dung nhu yeu cau: `cmt_col` (noi dung comment) va `link_cmt`
+  (link permalink cua comment neu FB co, fallback ve link bai viet). Co BOM
+  de Excel doc tieng Viet dung.
 
 ## Da sua o v1.22.0
 - Go 100% driver dang bai + telemetry khoi content script (truoc day chay tren

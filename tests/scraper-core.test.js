@@ -56,27 +56,30 @@ test('buildPostKey falls back to pageUrl + content prefix (120 chars)', () => {
   assert.ok(k1.length < 'https://fb.com/group::'.length + 121);
 });
 
-// ── resultsToCsvRows ──
-test('resultsToCsvRows: one row per comment, header first', () => {
+// ── resultsToCsvRows (2 cot: cmt_col, link_cmt) ──
+test('resultsToCsvRows: header cmt_col/link_cmt, one row per comment', () => {
   const results = [{
     url: 'u',
     posts: [{
       postUrl: 'pu', content: 'line1\nline2', numComments: 2, numReactions: 5,
-      comments: [{ author: 'A', text: 'hi "there"' }, { author: 'B', text: 'yo' }],
+      comments: [
+        { author: 'A', text: 'hi "there"' },
+        { author: 'B', text: 'yo', link: 'pu?comment_id=9' },
+      ],
     }],
   }];
   const rows = SC.resultsToCsvRows(results);
   assert.strictEqual(rows.length, 3);
-  assert.deepStrictEqual(rows[0],
-    ['post_url', 'post_content', 'num_comments', 'num_reactions', 'comment_author', 'comment_text']);
-  assert.strictEqual(rows[1][4], 'A');
-  assert.strictEqual(rows[1][5], '"hi ""there"""'); // escaped quotes + wrapped, CSV-correct
-  assert.strictEqual(String(rows[1][2]).includes('\n'), false);
+  assert.deepStrictEqual(rows[0], ['cmt_col', 'link_cmt']);
+  assert.strictEqual(rows[1][0], '"hi ""there"""'); // escaped quotes + wrapped, CSV-correct
+  assert.strictEqual(rows[1][1], '"pu"');           // khong co link comment -> fallback link bai
+  assert.strictEqual(rows[2][0], '"yo"');
+  assert.strictEqual(rows[2][1], '"pu?comment_id=9"'); // uu tien link comment
+  assert.strictEqual(String(rows[1][0]).includes('\n'), false);
 });
 
-test('resultsToCsvRows: post without comments -> single empty row', () => {
-  const rows = SC.resultsToCsvRows([{ url: 'u', posts: [{ postUrl: '', content: 'c', comments: [] }] }]);
+test('resultsToCsvRows: post without comments -> single empty row with link', () => {
+  const rows = SC.resultsToCsvRows([{ url: 'u', posts: [{ postUrl: 'link1', content: 'c', comments: [] }] }]);
   assert.strictEqual(rows.length, 2);
-  assert.strictEqual(rows[1][4], '');
-  assert.strictEqual(rows[1][5], '');
+  assert.deepStrictEqual(rows[1], ['""', '"link1"']);
 });

@@ -127,6 +127,55 @@ async function __scraperCloseDialogs() {
   } catch (_) {}
 }
 
+// ═══ CHỌN FILTER "ALL COMMENTS" ═══
+// FB mặc định hiển thị "Most relevant"/"Phù hợp nhất" -> thiếu comment.
+// Phải mở dropdown filter và chọn "All comments"/"Tất cả bình luận" để quét hết.
+const __SCRAPER_FILTER_ALL_RE = /^(all comments|tất cả bình luận)$/i;
+const __SCRAPER_FILTER_TRIGGER_RE = /^(all comments|tất cả bình luận|most relevant|phù hợp nhất|newest|mới nhất|recent(ly)? (comments|activity)?)$/i;
+
+// Tìm phần tử "trong cùng" có text khớp (tránh bấm nhầm container cha)
+function __scraperInnerTextMatch(list, re) {
+  let best = null;
+  for (const el of list) {
+    const t = (el.innerText || '').trim();
+    if (!t || !re.test(t)) continue;
+    // bỏ qua phần tử có con bên trong cũng mang nguyên text đó (không phải innermost)
+    const hasInner = Array.from(el.children).some((ch) => re.test((ch.innerText || '').trim()));
+    if (hasInner) continue;
+    if (!best || el.getElementsByTagName('*').length < best.getElementsByTagName('*').length) best = el;
+  }
+  return best;
+}
+
+async function __scraperSelectAllCommentsFilter(root) {
+  try {
+    const scope = root || document;
+    const candidates = scope.querySelectorAll('div[role="button"], div[role="menuitem"], span, div');
+    const trigger = __scraperInnerTextMatch(Array.from(candidates), __SCRAPER_FILTER_TRIGGER_RE);
+    if (!trigger) return 'not-found';
+    const cur = (trigger.innerText || '').trim();
+    if (__SCRAPER_FILTER_ALL_RE.test(cur)) return 'already-all';
+
+    trigger.scrollIntoView({ block: 'center' });
+    await new Promise((r) => setTimeout(r, 300));
+    trigger.click();
+    await new Promise((r) => setTimeout(r, 900));
+
+    // Menu vừa mở nằm ngoài `root` (overlay) -> tìm trên toàn document
+    const menuCandidates = document.querySelectorAll('div[role="menuitem"], div[role="menu"] div, div[role="dialog"] div, div[role="listitem"], span');
+    const item = __scraperInnerTextMatch(Array.from(menuCandidates), __SCRAPER_FILTER_ALL_RE);
+    if (!item) {
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
+      return 'menu-not-found';
+    }
+    item.click();
+    await new Promise((r) => setTimeout(r, 1200));
+    return 'selected: ' + cur + ' -> all';
+  } catch (_) {
+    return 'error';
+  }
+}
+
 // Click "Load more comments"/"View more comments"/"Xem thêm bình luận" de load them
 async function __scraperExpandComments(root, maxClicks = SCRAPE_COMMENTS_LOAD_CLICKS_MAX) {
   let clicks = 0;
@@ -182,7 +231,11 @@ async function __scraperExtractComments(postEl, opts = {}) {
           const key = ScraperCore.buildCommentKey(author, body);
           if (seen.has(key)) continue;
           seen.add(key);
-          comments.push({ author, text: body });
+          // Best-effort: link permalink cua comment (neu FB co <a href*="comment_id=">)
+          let link = '';
+          const a = c.querySelector('a[href*="comment_id="]');
+          if (a && a.href) link = a.href;
+          comments.push({ author, text: body, link });
         } catch (_) {}
       }
     }
@@ -192,8 +245,9 @@ async function __scraperExtractComments(postEl, opts = {}) {
     // 1) Comment inline ngay trong post (permalink / feed hien comment san)
     collectFrom([postEl]);
 
-    // 2) Khong co inline -> bam nut "N bình luận" mo khung comment (dialog)
-    if (comments.length === 0 && opts.openComments !== false) {
+    // 2) LUON mo khung comment cua bai (dialog = "mo tung bai viet ra"):
+    //    inline chi hien tap hop con, day moi la ban full + co dropdown filter
+    if (opts.openComments !== false && !__scraperAbort) {
       const commentButtons = Array.from(postEl.querySelectorAll("div[role='button'], span, a")).filter((el) => {
         const t = (el.innerText || '').trim().toLowerCase();
         const l = ((el.getAttribute && el.getAttribute('aria-label')) || '').trim().toLowerCase();
@@ -203,11 +257,16 @@ async function __scraperExtractComments(postEl, opts = {}) {
       });
       if (commentButtons.length) {
         try {
+          commentButtons[0].scrollIntoView({ block: 'center' });
+          await new Promise(r => setTimeout(r, 300));
           commentButtons[0].click();
           await new Promise(r => setTimeout(r, 1800));
         } catch (_) {}
         const dialogs = __scraperGetDialogs();
         const target = dialogs.length ? dialogs[0] : postEl;
+        // CHON "ALL COMMENTS": FB mac dinh "Most relevant" -> thieu comment
+        const filterState = await __scraperSelectAllCommentsFilter(target);
+        __scraperLog('comment filter: ' + filterState);
         // Mo rong binh luan trong dialog (hoac trong post neu khong co dialog)
         await __scraperExpandComments(target, opts.maxCommentClicks ?? SCRAPE_COMMENTS_LOAD_CLICKS_MAX);
         collectFrom(dialogs.length ? dialogs : [postEl]);
