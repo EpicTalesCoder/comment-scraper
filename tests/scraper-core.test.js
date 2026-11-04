@@ -71,7 +71,7 @@ test('resultsToCsvRows: one row per comment, header first', () => {
     ['post_url', 'post_content', 'num_comments', 'num_reactions', 'comment_author', 'comment_text']);
   assert.strictEqual(rows[1][4], 'A');
   assert.strictEqual(rows[1][5], '"hi ""there"""'); // escaped quotes + wrapped, CSV-correct
-  assert.strictEqual(rows[1][2].includes('\n'), false);
+  assert.strictEqual(String(rows[1][2]).includes('\n'), false);
 });
 
 test('resultsToCsvRows: post without comments -> single empty row', () => {
