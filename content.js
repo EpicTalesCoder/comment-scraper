@@ -252,19 +252,33 @@ async function __scraperExtractComments(postEl, opts = {}) {
     // 2) LUON mo khung comment cua bai (dialog = "mo tung bai viet ra"):
     //    inline chi hien tap hop con, day moi la ban full + co dropdown filter
     if (opts.openComments !== false && !__scraperAbort) {
-      const commentButtons = Array.from(postEl.querySelectorAll("div[role='button'], span, a")).filter((el) => {
-        const t = (el.innerText || '').trim().toLowerCase();
-        const l = ((el.getAttribute && el.getAttribute('aria-label')) || '').trim().toLowerCase();
-        return /^(\d[\d.,]*)?\s*(bình luận|comments?|phản hồi|replies?)$/.test(t) ||
-               t === 'xem bình luận' || t === 'view comments' ||
-               /^(\d[\d.,]*)?\s*(bình luận|comments?)$/.test(l);
-      });
+      // UU TIEN: nut comment chuan hien nay cua FB — khong co role="button",
+      // chi nhan dien qua data-ad-rendering-role="comment_button"
+      let commentButtons = Array.from(postEl.querySelectorAll('div[data-ad-rendering-role="comment_button"]'));
+      if (!commentButtons.length) {
+        // Fallback: nut theo text / aria-label (ban FB cu)
+        commentButtons = Array.from(postEl.querySelectorAll("div[role='button'], span, a")).filter((el) => {
+          const t = (el.innerText || '').trim().toLowerCase();
+          const l = ((el.getAttribute && el.getAttribute('aria-label')) || '').trim().toLowerCase();
+          return /^(\d[\d.,]*)?\s*(bình luận|comments?|phản hồi|replies?)$/.test(t) ||
+                 t === 'xem bình luận' || t === 'view comments' ||
+                 /^(\d[\d.,]*)?\s*(bình luận|comments?)$/.test(l);
+        });
+      }
       if (commentButtons.length) {
         try {
-          commentButtons[0].scrollIntoView({ block: 'center' });
+          // Click phan tu trong cung co text (hoac chinh div) — handler FB nam o day
+          const btn = commentButtons[0];
+          const inner = btn.querySelector('span') || btn;
+          btn.scrollIntoView({ block: 'center' });
           await new Promise(r => setTimeout(r, 300));
-          commentButtons[0].click();
+          inner.click();
           await new Promise(r => setTimeout(r, 1800));
+          // Chua mo duoc -> click lai chinh div + div cha
+          if (!__scraperGetDialogs().length) {
+            try { btn.click(); } catch (_) {}
+            await new Promise(r => setTimeout(r, 1500));
+          }
         } catch (_) {}
         const dialogs = __scraperGetDialogs();
         const target = dialogs.length ? dialogs[0] : postEl;
@@ -353,7 +367,9 @@ async function __scraperScrapeCurrentPage(opts = {}) {
         if (seen.has(key)) continue;
         seen.add(key);
         const post = { postUrl, content, images, numComments, numReactions, expectedComments: numComments, comments: [] };
-        if (withComments) {
+        // Quét comment trong feed khi được bật, HOẶC khi bài không có permalink
+        // (phase 2 của background không navigate được -> phải bấm nút comment tại chỗ)
+        if (withComments || !postUrl) {
           post.comments = await __scraperExtractComments(postEl, { maxCommentClicks });
         }
         posts.push(post);
