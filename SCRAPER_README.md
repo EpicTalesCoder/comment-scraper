@@ -1,7 +1,26 @@
-# Facebook Comment Scraper (v1.21.0 — SCRAPER-ONLY)
+# Facebook Comment Scraper (v1.22.0 — SCRAPER-ONLY)
 
 Fork tu "Facebook Groups Bulk Poster & Scheduler" v1.19.7. Tu v1.21.0 da GO BO
-DANG BAI hoan toan: chi con che do CAO DU LIEU (posts + comments).
+DANG BAI hoan toan; v1.22.0 quet sach: content script chi con ~390 dong,
+KHONG con telemetry (Sentry/Mixpanel), khong remote config, khong Firebase.
+
+## Da sua o v1.22.0
+- Go 100% driver dang bai + telemetry khoi content script (truoc day chay tren
+  moi trang Facebook): khong gui gi ra server thu ba, config doc tu file dong goi.
+- Go Firebase SDK khoi service worker (importScripts file da xoá — neu khong
+  service worker se chet).
+- Do beng vong cao: time budget 4 phut/URL (khong bao gio vuot timeout 5p cua
+  background), tu dung scroll som sau 3 lan lien tiep khong co bai moi.
+- Quan sat: log buffer 15 dong cuoi hien trong UI, progress URL i/N + dem
+  posts/comments live, moi bai hien comments da cao / FB hien thi (canh bao
+  neu thieu, de tang maxCommentClicks kip thoi).
+- Unit test: node --test tests/ (13 test cho parse author, dedupe key, CSV).
+
+## Bug da sua (v1.21.0)
+- "Dung yen o bai dau tien, khong cao duoc binh luan": FB mo khung comment o lop
+  dialog ben NGOAI feed — scraper cu tim chi trong post nen ra 0 comment, dialog
+  khong duoc dong lam feed khong scroll. Gio: lay comment tu ca post va dialog,
+  dong dialog sau moi post, scroll tung buoc co fallback scroll container.
 
 ## Chuc nang
 - Cao bai viet (noi dung, anh, so reaction, so comment) + TOAN BO binh luan (tac gia + noi dung)
