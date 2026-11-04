@@ -3296,21 +3296,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 });
 
-//Firestore calls
-importScripts("firebase-app-compat.js", "firebase-firestore-compat.js");
-
-// Firebase config
-const firebaseConfig = {
-  apiKey: "AIzaSyCDBgRtDLY13s6dVvzcKouK5LYNy8Dqbr0",
-  authDomain: "klyra-c84ad.firebaseapp.com",
-  projectId: "klyra-c84ad",
-  storageBucket: "klyra-c84ad.firebasestorage.app",
-  messagingSenderId: "315865406417",
-  appId: "1:315865406417:web:ee66e55bc07c042b9e1ef0",
-};
-
-firebase.initializeApp(firebaseConfig);
-const db = firebase.firestore();
+// FIRESTORE REMOVED (v1.22.0 scraper-only): importScripts firebase-*.js + firebase init
+// da bi go — cac file SDK khong con dong goi, va global db (firestore) khong duoc dung dau.
+// Cac ham REST duoi duoi (fetchSelectorsConfigREST...) giu nguyen nhung dormant.
+// eslint-disable-next-line no-unused-vars
+const __firebaseRemovedInV1220 = true;
 
 // Your Firebase project variables
 const apiKey = "AIzaSyCDBgRtDLY13s6dVvzcKouK5LYNy8Dqbr0";
@@ -3495,6 +3485,8 @@ async function initiateScrapePostsAction(request) {
     if (state.isStopRequested) break;
     const url = urls[i];
     updatePostingStatus(`Scraping ${i + 1} / ${urls.length}: ${url}`);
+    // Progress theo URL cho UI (key rieng de content script khong ghi de)
+    chrome.storage.local.set({ scrapeUrlProgress: { urlIndex: i + 1, totalUrls: urls.length, url } });
 
     let tab;
     try {

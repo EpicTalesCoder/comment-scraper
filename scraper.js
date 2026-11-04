@@ -14,14 +14,19 @@ function renderResults(results) {
   lastResults = results || [];
   const totalPosts = lastResults.reduce((a, r) => a + (r.posts?.length || 0), 0);
   const totalComments = lastResults.reduce((a, r) => a + (r.posts || []).reduce((b, p) => b + (p.comments?.length || 0), 0), 0);
-  let html = `<div class="summary"><b>${lastResults.length}</b> URL(s) • <b>${totalPosts}</b> bài viết • <b>${totalComments}</b> bình luận</div>`;
+  const totalExpected = lastResults.reduce((a, r) => a + (r.posts || []).reduce((b, p) => b + (p.expectedComments ?? p.numComments ?? 0), 0), 0);
+  let html = `<div class="summary"><b>${lastResults.length}</b> URL(s) • <b>${totalPosts}</b> bài viết • <b>${totalComments}</b> bình luận` +
+    (totalExpected > 0 ? ` <span style="color:#65676b">(FB hiển thị ~${totalExpected})</span>` : '') + `</div>`;
   for (const r of lastResults) {
     html += `<div style="font-weight:600;margin-top:8px;color:#050505">${esc(r.url)} ${r.error ? '<span style="color:#fa383e">— lỗi: ' + esc(r.error) + '</span>' : ''}</div>`;
     for (const p of (r.posts || [])) {
       html += `<div class="post-item">`;
       if (p.postUrl) html += `<div class="post-url"><a href="${esc(p.postUrl)}" target="_blank">${esc(p.postUrl)}</a></div>`;
       html += `<div class="post-content">${esc((p.content || '').slice(0, 500))}</div>`;
-      html += `<div class="post-meta">💬 ${p.numComments ?? (p.comments?.length || 0)} comments • 👍 ${p.numReactions ?? '?'} • 🖼 ${p.images?.length || 0} ảnh</div>`;
+      const got = p.comments?.length ?? 0;
+      const exp = p.expectedComments ?? p.numComments;
+      const flag = (exp != null && got < exp) ? ` <span style="color:#e68a00" title="FB hiển thị ${exp} comment nhưng chỉ cào được ${got} — có thể cần tăng maxCommentClicks">⚠️</span>` : '';
+      html += `<div class="post-meta">💬 ${got}${exp != null ? '/' + exp : ''} comment${flag} • 👍 ${p.numReactions ?? '?'} • 🖼 ${p.images?.length || 0} ảnh</div>`;
       for (const c of (p.comments || [])) {
         html += `<div class="comment"><b>${esc(c.author)}</b> <span>${esc((c.text || '').slice(0, 300))}</span></div>`;
       }
@@ -34,11 +39,25 @@ function renderResults(results) {
 }
 
 function pollStatus() {
-  chrome.storage.local.get(['postingStatus', 'scrapeResults', 'scraperProgress', 'isPostingInProgress'], (r) => {
+  chrome.storage.local.get(['postingStatus', 'scrapeResults', 'scraperProgress', 'scrapeUrlProgress', 'isPostingInProgress', 'scrapedPosts', 'scrapeLogs'], (r) => {
     if (r?.postingStatus) $('status').textContent = r.postingStatus;
     const prog = r?.scraperProgress;
     if (prog && prog.maxScrolls > 0) {
       $('progressBar').style.width = Math.min(100, (prog.scroll / prog.maxScrolls) * 100) + '%';
+    }
+    // Log tail (15 dong cuoi)
+    if (r?.scrapeLogs?.length) {
+      $('logTail').textContent = r.scrapeLogs.slice(-15).join('\n');
+    }
+    // Đếm live trong lúc chạy: tổng posts + comments của URL đang cào
+    if (r?.isPostingInProgress === 'started') {
+      const livePosts = r?.scrapedPosts || [];
+      const lc = livePosts.reduce((a, p) => a + (p.comments?.length || 0), 0);
+      const up = r?.scrapeUrlProgress;
+      const urlInfo = up?.totalUrls ? `URL ${up.urlIndex}/${up.totalUrls} • ` : '';
+      $('liveCounters').textContent = `${urlInfo}${livePosts.length} bài • ${lc} bình luận (đang cào…)`;
+    } else {
+      $('liveCounters').textContent = '';
     }
     if (r?.scrapeResults?.length) renderResults(r.scrapeResults);
     const running = r?.isPostingInProgress === 'started';
@@ -97,19 +116,7 @@ $('btnJson').onclick = () => {
 };
 
 $('btnCsv').onclick = () => {
-  const rows = [['post_url', 'post_content', 'num_comments', 'num_reactions', 'comment_author', 'comment_text']];
-  for (const r of lastResults) {
-    for (const p of (r.posts || [])) {
-      const pc = (p.content || '').replace(/"/g, '""').replace(/\n/g, ' ');
-      if (p.comments?.length) {
-        for (const c of p.comments) {
-          rows.push([p.postUrl || '', `"${pc}"`, p.numComments ?? p.comments.length, p.numReactions ?? '', c.author || '', `"${(c.text || '').replace(/"/g, '""').replace(/\n/g, ' ')}"`]);
-        }
-      } else {
-        rows.push([p.postUrl || '', `"${pc}"`, 0, p.numReactions ?? '', '', '']);
-      }
-    }
-  }
+  const rows = ScraperCore.resultsToCsvRows(lastResults);
   const csv = '\ufeff' + rows.map(r => r.join(',')).join('\n');
   download('fb-scrape-' + Date.now() + '.csv', csv, 'text/csv;charset=utf-8');
 };
