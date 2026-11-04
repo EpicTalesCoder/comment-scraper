@@ -63,8 +63,8 @@
       "scripting"
    ],
    "update_url": "https://clients2.google.com/service/update2/crx",
-   "version": "1.23.0",
-   "version_name": "1.23.0 all-comments filter + 2-col CSV",
+   "version": "1.24.0",
+   "version_name": "1.24.0 open-each-post + All comments + 2-col CSV",
    "web_accessible_resources": [
       {
          "matches": [

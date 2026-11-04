@@ -3464,6 +3464,26 @@ chrome.runtime.onMessageExternal.addListener((request, sender, sendResponse) => 
 
 let isScrapeRunning = false;
 
+// Navigate tab tới url và đợi load xong (resolve cả khi timeout để không treo flow)
+function navigateTabAndWait(tabId, url, timeoutMs = 25000) {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      chrome.tabs.onUpdated.removeListener(listener);
+      clearTimeout(timer);
+      resolve();
+    };
+    const listener = (updatedTabId, changeInfo) => {
+      if (updatedTabId === tabId && changeInfo && changeInfo.status === 'complete') finish();
+    };
+    const timer = setTimeout(finish, timeoutMs);
+    chrome.tabs.onUpdated.addListener(listener);
+    chrome.tabs.update(tabId, { url }, () => void chrome.runtime.lastError);
+  });
+}
+
 async function initiateScrapePostsAction(request) {
   const urls = request.payload.urls || [];
   const options = request.payload.options || {};
@@ -3504,7 +3524,8 @@ async function initiateScrapePostsAction(request) {
       await new Promise((resolve) => chrome.storage.local.remove(['scrapedPosts'], resolve));
       await checkContentScriptReady(tab.id);
       await new Promise((resolve, reject) => {
-        chrome.tabs.sendMessage(tab.id, { action: 'contentScrapePosts', options }, (resp) => {
+        // PHASE 1: chỉ thu danh sách bài (comments quét ở PHASE 2 khi mở từng bài)
+        chrome.tabs.sendMessage(tab.id, { action: 'contentScrapePosts', options: { ...options, withComments: false } }, (resp) => {
           if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
           else resolve(resp);
         });
@@ -3518,8 +3539,58 @@ async function initiateScrapePostsAction(request) {
         if (result.operationDone === 'successful') {
           ok = true;
           const posts = result.scrapedPosts || [];
+          // PHASE 1 xong: danh sách bài (chưa có comment). Lưu live cho UI.
+          chrome.storage.local.set({ scrapedPosts: posts });
+          updatePostingStatus(`Tìm thấy ${posts.length} bài — mở từng bài để quét comment...`);
+
+          // PHASE 2: MO TUNG BAI VIET (navigate tab tới postUrl) + quét full comment
+          const noUrlCount = posts.filter((p) => !p.postUrl).length;
+          if (noUrlCount > 0) {
+            console.warn(`[Scrape] ${noUrlCount}/${posts.length} posts khong co permalink — bo qua comment cua chung`);
+          }
+          for (let j = 0; j < posts.length; j++) {
+            if (state.isStopRequested) break;
+            const p = posts[j];
+            if (!p.postUrl) continue;
+            updatePostingStatus(`Bài ${j + 1}/${posts.length}: ${p.postUrl}`);
+            chrome.storage.local.set({
+              scrapeUrlProgress: { urlIndex: i + 1, totalUrls: urls.length, url },
+              scrapePostProgress: { postIndex: j + 1, totalPosts: posts.length },
+            });
+            try {
+              await navigateTabAndWait(tab.id, p.postUrl);
+              await checkContentScriptReady(tab.id);
+              await clearOperationDone();
+              await new Promise((resolve) => chrome.storage.local.remove(['scrapedComments'], resolve));
+              await new Promise((resolve, reject) => {
+                chrome.tabs.sendMessage(tab.id, {
+                  action: 'contentScrapePostComments',
+                  options: { maxCommentClicks: options.maxCommentClicks, timeBudgetMs: 180000 },
+                }, (resp) => {
+                  if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+                  else resolve(resp);
+                });
+              });
+              // Đợi content script quét xong bài này (tối đa ~200s)
+              let tt = 0;
+              while (true) {
+                if (state.isStopRequested) break;
+                const r = await new Promise((res) => chrome.storage.local.get(['operationDone', 'scrapedComments'], res));
+                if (r.operationDone === 'successful') { p.comments = r.scrapedComments || []; break; }
+                if (r.operationDone === 'failed') break;
+                await sleep(1);
+                tt++;
+                if (tt > 200) break; // timeout 1 bài
+              }
+            } catch (postErr) {
+              console.error('[Scrape] Post flow failed cho', p.postUrl, postErr);
+            }
+            // Cập nhật UI live sau mỗi bài
+            chrome.storage.local.set({ scrapedPosts: posts });
+            await sleep(2); // nhịp nhẹ giữa các bài, tránh spam FB
+          }
           allResults.push({ url, posts });
-          updatePostingStatus(`Scraped ${posts.length} posts from ${url}`);
+          updatePostingStatus(`Scraped ${posts.length} posts, ${posts.reduce((a, p) => a + (p.comments?.length || 0), 0)} comments from ${url}`);
           break;
         }
         await sleep(1);

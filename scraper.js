@@ -39,7 +39,7 @@ function renderResults(results) {
 }
 
 function pollStatus() {
-  chrome.storage.local.get(['postingStatus', 'scrapeResults', 'scraperProgress', 'scrapeUrlProgress', 'isPostingInProgress', 'scrapedPosts', 'scrapeLogs'], (r) => {
+  chrome.storage.local.get(['postingStatus', 'scrapeResults', 'scraperProgress', 'scrapeUrlProgress', 'scrapePostProgress', 'isPostingInProgress', 'scrapedPosts', 'scrapeLogs'], (r) => {
     if (r?.postingStatus) $('status').textContent = r.postingStatus;
     const prog = r?.scraperProgress;
     if (prog && prog.maxScrolls > 0) {
@@ -54,8 +54,10 @@ function pollStatus() {
       const livePosts = r?.scrapedPosts || [];
       const lc = livePosts.reduce((a, p) => a + (p.comments?.length || 0), 0);
       const up = r?.scrapeUrlProgress;
+      const pp = r?.scrapePostProgress;
       const urlInfo = up?.totalUrls ? `URL ${up.urlIndex}/${up.totalUrls} • ` : '';
-      $('liveCounters').textContent = `${urlInfo}${livePosts.length} bài • ${lc} bình luận (đang cào…)`;
+      const postInfo = pp?.totalPosts ? `bài ${pp.postIndex}/${pp.totalPosts} • ` : '';
+      $('liveCounters').textContent = `${urlInfo}${postInfo}${livePosts.length} bài • ${lc} bình luận (đang cào…)`;
     } else {
       $('liveCounters').textContent = '';
     }

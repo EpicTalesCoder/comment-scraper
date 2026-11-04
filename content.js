@@ -185,8 +185,9 @@ async function __scraperExpandComments(root, maxClicks = SCRAPE_COMMENTS_LOAD_CL
     'a',
   ];
   const wanted = [
-    'view more comments', 'load more comments', 'view previous comments',
-    'see more comments', 'more replies',
+    // English UI (uo tien)
+    'view more comments', 'load more comments', 'view previous comments', 'see more comments', 'more replies',
+    // Vietnamese UI
     'xem thêm bình luận', 'tải thêm bình luận', 'xem các bình luận trước đó', 'câu trả lời khác',
   ];
   while (clicks < maxClicks && !__scraperAbort) {
@@ -214,32 +215,35 @@ async function __scraperExpandComments(root, maxClicks = SCRAPE_COMMENTS_LOAD_CL
   return clicks;
 }
 
+// Thu thập comment từ các root vào `out` (dedupe qua `seen`) — dùng chung
+function __scraperCollectCommentsFrom(roots, seen, out) {
+  for (const root of roots) {
+    if (__scraperAbort) return;
+    for (const c of __scraperFindCommentContainers(root)) {
+      try {
+        const label = c.getAttribute('aria-label') || '';
+        const author = ScraperCore.parseAuthorFromLabel(label);
+        const text = (c.innerText || '').trim();
+        if (!text) continue;
+        const body = ScraperCore.stripAuthorPrefix(text, author);
+        const key = ScraperCore.buildCommentKey(author, body);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        // Best-effort: link permalink cua comment (neu FB co <a href*="comment_id=">)
+        let link = '';
+        const a = c.querySelector('a[href*="comment_id="]');
+        if (a && a.href) link = a.href;
+        out.push({ author, text: body, link });
+      } catch (_) {}
+    }
+  }
+}
+
 // Lay comment tu 1 post element (kem ca dialog comment dang mo ben ngoai feed)
 async function __scraperExtractComments(postEl, opts = {}) {
   const comments = [];
   const seen = new Set();
-  const collectFrom = (roots) => {
-    for (const root of roots) {
-      for (const c of __scraperFindCommentContainers(root)) {
-        if (__scraperAbort) return;
-        try {
-          const label = c.getAttribute('aria-label') || '';
-          const author = ScraperCore.parseAuthorFromLabel(label);
-          const text = (c.innerText || '').trim();
-          if (!text) continue;
-          const body = ScraperCore.stripAuthorPrefix(text, author);
-          const key = ScraperCore.buildCommentKey(author, body);
-          if (seen.has(key)) continue;
-          seen.add(key);
-          // Best-effort: link permalink cua comment (neu FB co <a href*="comment_id=">)
-          let link = '';
-          const a = c.querySelector('a[href*="comment_id="]');
-          if (a && a.href) link = a.href;
-          comments.push({ author, text: body, link });
-        } catch (_) {}
-      }
-    }
-  };
+  const collectFrom = (roots) => __scraperCollectCommentsFrom(roots, seen, comments);
 
   try {
     // 1) Comment inline ngay trong post (permalink / feed hien comment san)
@@ -287,7 +291,8 @@ function __scraperExtractPost(postEl) {
     for (const a of links) {
       const href = a.href || '';
       if (/facebook\.com\/.*(\/posts\/|\/permalink\/|\/videos\/|\/photos?\/|\/reel\/)/.test(href)) {
-        postUrl = href.split('?')[0];
+        // Link photo cần giữ nguyên query (fbid=) mới mở đúng bài
+        postUrl = href.includes('/photo') ? href : href.split('?')[0];
         break;
       }
     }
@@ -421,6 +426,37 @@ async function __scraperScrapeCurrentPage(opts = {}) {
   return posts;
 }
 
+// ═══ QUÉT 1 BÀI ĐÃ MỞ (trang permalink / photo mở thật) ═══
+// Chạy khi background đã navigate tab tới postUrl. Chọn "All comments",
+// bấm hết "View more comments", rồi thu toàn bộ comment trên trang.
+async function __scraperScrapeOpenPost(opts = {}) {
+  const deadline = __scraperMakeDeadline({ timeBudgetMs: opts.timeBudgetMs || 180000 });
+  const comments = [];
+  const seen = new Set();
+
+  // Đợi khung comment render sau khi trang mở
+  for (let i = 0; i < 15 && !__scraperAbort; i++) {
+    if (__scraperFindCommentContainers(document).length) break;
+    if (__scraperTimeLeft(deadline) <= 0) break;
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+
+  __scraperExpandAllSeeMore(document);
+
+  // Filter "All comments" (FB mặc định "Most relevant" -> thiếu comment)
+  const filterState = await __scraperSelectAllCommentsFilter(document);
+  __scraperLog('comment filter (open post): ' + filterState);
+
+  // Bấm hết "View more comments" / "more replies"
+  await __scraperExpandComments(document, opts.maxCommentClicks ?? SCRAPE_COMMENTS_LOAD_CLICKS_MAX);
+
+  __scraperCollectCommentsFrom([document], seen, comments);
+  const fallbackLink = location.href.split('?')[0];
+  for (const c of comments) if (!c.link) c.link = fallbackLink;
+  __scraperLog(`open post: ${comments.length} comments`);
+  return comments;
+}
+
 // Handler chinh
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.action === 'contentScrapePosts') {
@@ -434,6 +470,24 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       } catch (e) {
         __scraperLog('error: ' + e.message);
         chrome.storage.local.set({ operationDone: 'failed', scrapedPosts: [] }, () => {});
+      } finally {
+        __scraperActive = false;
+      }
+    })();
+    sendResponse({ accepted: true });
+    return false;
+  }
+  if (msg.action === 'contentScrapePostComments') {
+    // Chạy trên trang bài viết đã mở: quét full comment + filter "All comments"
+    (async () => {
+      try {
+        __scraperActive = true;
+        __scraperAbort = false;
+        const comments = await __scraperScrapeOpenPost(msg.options || {});
+        chrome.storage.local.set({ operationDone: 'successful', scrapedComments: comments }, () => {});
+      } catch (e) {
+        __scraperLog('error(open post): ' + e.message);
+        chrome.storage.local.set({ operationDone: 'failed', scrapedComments: [] }, () => {});
       } finally {
         __scraperActive = false;
       }
