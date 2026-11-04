@@ -1127,11 +1127,11 @@ function createTab(url, { timeoutMs = 15000 } = {}) {
           chrome.windows.update(
             createdWindowId,
             {
-              width: 600,
-              height: 500,
+              width: 700,
+              height: 600,
               top: 100,
               left: 100,
-              focused: true,
+              focused: false,
             },
             () => settleResolve(tabId)
           );
@@ -1162,7 +1162,7 @@ function createTab(url, { timeoutMs = 15000 } = {}) {
             top: topPosition,
             width: 300,
             height: 300,
-            focused: true,
+            focused: false,
           },
           handleCreatedWindow
         );
@@ -1497,6 +1497,9 @@ async function initiatePostToFBAction(request) {
 }
 
 function runPostLogic(postId) {
+  // ── SCRAPER-ONLY BUILD (v1.21.0): hủy đăng bài theo lịch, không đăng gì nữa ──
+  console.log("[Scraper-only] runPostLogic blocked: scheduled posting removed");
+  return;
   (async () => {
     // CRITICAL FIX: Check if a campaign is already running before starting scheduled post
     if (isCurrentlyPosting || isStopping) {
@@ -1881,6 +1884,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   if (request.action === "POST_PAYLOAD") {
+    // ── SCRAPER-ONLY BUILD (v1.21.0): đăng bài đã bị gỡ, chỉ còn Comment Scraper ──
+    console.log("[Scraper-only] POST_PAYLOAD rejected: posting removed");
+    sendResponse({ success: false, message: "Đăng bài đã bị gỡ trong bản Comment Scraper." });
+    return false;
     const launchPostPayloadCampaign = (postRequest, source = "manual") => {
       const campaignId = postRequest?.payload?.campaignId;
       isCurrentlyPosting = true;
@@ -2740,6 +2747,10 @@ async function copyAndClearMediaDBToPermanentStore(metadata) {
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.action === "schedulePost") {
+    // ── SCRAPER-ONLY BUILD: không lưu media cho lịch đăng nữa ──
+    console.log("[Scraper-only] schedulePost rejected: posting removed");
+    sendResponse({ success: false, message: "Đăng bài đã bị gỡ trong bản Comment Scraper." });
+    return true;
     copyAndClearMediaDBToPermanentStore(msg.payload || {});
     sendResponse({ success: true });
   }

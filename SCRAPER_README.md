@@ -1,40 +1,42 @@
-# Facebook Comment Scraper (v1.20.0)
+# Facebook Comment Scraper (v1.21.0 — SCRAPER-ONLY)
 
-Fork tu "Facebook Groups Bulk Poster & Scheduler" v1.19.7 — giu nguyen toan bo co che
-posting (pause/smart delays giua cac URL, tab retry, stop button), them che do CAO DU LIEU.
+Fork tu "Facebook Groups Bulk Poster & Scheduler" v1.19.7. Tu v1.21.0 da GO BO
+DANG BAI hoan toan: chi con che do CAO DU LIEU (posts + comments).
 
-## Chuc nong moi
+## Chuc nang
 - Cao bai viet (noi dung, anh, so reaction, so comment) + TOAN BO binh luan (tac gia + noi dung)
   tu cac group/page Facebook hoac tu 1 bai viet cu the.
 - Tu scroll feed de tai them bai (maxScrolls), tu click "Xem thêm bình luận" de load du comment.
+- Chay SONG SONG voi trinh duyet: moi URL mo trong mot cua so nho rieng (700x600, khong
+  cuop focus), tab goc cua ban van dung binh thuong.
 - Giu nguyen co che PAUSE giua cac URL: dung dung ham waitBeforeNextPost cua ban goc
   (mac dinh 30 giay, random 70-150%, co the tinh chinh trong UI).
 - Stop button hoat dong (dung lai ngay ca scroll va vong lap URL).
 - Xuat ket qua JSON / CSV (co BOM de Excel doc tieng Viet dung).
 
+## Da sua o v1.21.0
+- Bug "dung yen o bai dau tien, khong cao duoc binh luan": FB mo khung comment o lop
+  dialog ben NGOAI feed — ban cu tim chi trong post nen ra 0 comment, va dialog khong
+  duoc dong lam feed khong scroll duoc. Gio: lay comment tu ca post va dialog, dong dialog
+  sau moi post; scroll tung buoc co fallback scroll container; tim comment qua aria-label
+  chua (khong con startsWith) de bat ca cac variant ngon ngu.
+- Click icon extension -> mo thang trang scraper.html (popup.html moi).
+- Cam dang bai: POST_PAYLOAD / schedulePost / runPostLogic (lich) deu bi chan trong background.
+
 ## Cach dung
 1. chrome://extensions -> Load unpacked -> chon thu muc nay.
-2. Mo extension -> chuot phai icon -> Options (hoac mo truc tiep scraper.html).
-   Link nhanh: chrome-extension://<EXTENSION_ID>/scraper.html
+2. Click icon extension (hoac chuot phai icon -> Options) -> mo trang scraper.
 3. Dan danh sach URL (moi dong 1 link group/page/bai viet).
 4. Chinh: maxScrolls (so lan scroll tai them bai), thoi gian cho giua 2 URL (giay),
    maxCommentClicks (gioi han click "xem them binh luan"), chon co cao comments khong.
-5. Start Scraping. Extension se tu mo tab moi cho tung URL, cao, dong tab, cho `timeInSeconds`,
+5. Start Scraping. Moi URL mo trong cua so nho rieng, cao xong tu dong, cho timeInSeconds,
    roi sang URL tiep theo. Trang scraper hien progress + xem truc tiep ket qua.
 6. Xuat JSON hoac CSV khi chay xong.
-
-## Code them moi
-- content.js: __scraper* (scrape feed, expand See more, mo comments, extract) + handler
-  contentScrapePosts / stopScrapePosts.
-- background.js: initiateScrapePostsAction (vong lap URL giong posting loop) + routes
-  startScrapePosts / stopScrapePosts / openScrapeUI.
-- scraper.html + scraper.js: trang UI cai dat & xem ket qua.
-- manifest.json: them options_page/options_ui, version 1.20.0, xoa _metadata (CRX-only).
 
 ## Luu y
 - Cao du lieu ca nhan dung voi muc dich nghien cuu; khong lam dung (spam, tu dong thao tac
   qua muc cho phep cua Facebook) vi co the bi checkpoint/khoa tai khoan.
 - Extension goc goi telemetry (Mixpanel/Sentry/server fbgroupbulkposter.com) — flow scraper
   KHONG goi them bat ky server nao: du lieu chi luu trong chrome.storage cua may ban.
-- Login cua extension goc da duoc mo khoa "unlimited_access_mode" san trong ban nay
-  (checkCredits/checkPremium luon tra isPremium=true), khong can tai khoan.
+- Selector DOM (aria-label "Comment by"/"Bình luận của", nut "N bình luận", dialog close)
+  chua duoc test tren Facebook that — can chay thu 1 URL truoc khi cao hang loat.

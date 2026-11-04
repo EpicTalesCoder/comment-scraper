@@ -3130,22 +3130,48 @@ function __scraperExpandAllSeeMore(root) {
   } catch (_) { return 0; }
 }
 
-// Tim phan tu chua comment: aria-label bat dau bang "Comment" hoac "Bình luận"
+// Tim phan tu chua comment: aria-label chua "Comment by" / "Bình luận của" / "Reply by" / "Phản hồi của"
+const __SCRAPER_COMMENT_LABEL_RE = /(comment by|bình luận của|reply by|phản hồi của)/i;
 function __scraperFindCommentContainers(root) {
   const results = [];
   try {
     const candidates = root.querySelectorAll('div[aria-label]');
     for (const el of candidates) {
-      const label = (el.getAttribute('aria-label') || '').toLowerCase();
-      if (
-        label.startsWith('comment by') || label.startsWith('bình luận của') ||
-        label.startsWith('reply by') || label.startsWith('phản hồi của')
-      ) {
+      const label = el.getAttribute('aria-label') || '';
+      if (__SCRAPER_COMMENT_LABEL_RE.test(label)) {
         results.push(el);
       }
     }
   } catch (_) {}
   return results;
+}
+
+// Cac dialog dang mo (FB mo khung comment o lop dialog ben NGOAI feed)
+function __scraperGetDialogs() {
+  try { return Array.from(document.querySelectorAll("div[role='dialog']")); } catch (_) { return []; }
+}
+
+// Dong moi dialog dang mo (nut Close / Đóng, fallback Escape) de feed khong bi chan
+async function __scraperCloseDialogs() {
+  try {
+    const dialogs = __scraperGetDialogs();
+    if (!dialogs.length) return;
+    for (const d of dialogs) {
+      const btns = d.querySelectorAll("div[aria-label], div[role='button'], button");
+      for (const b of btns) {
+        const l = (b.getAttribute('aria-label') || '').trim().toLowerCase();
+        if (l === 'close' || l === 'đóng') {
+          try { b.click(); await new Promise(r => setTimeout(r, 600)); } catch (_) {}
+          break;
+        }
+      }
+    }
+    if (__scraperGetDialogs().length) {
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
+      await new Promise(r => setTimeout(r, 600));
+    }
+    __scraperLog('closed dialogs, remaining: ' + __scraperGetDialogs().length);
+  } catch (_) {}
 }
 
 // Click "Load more comments"/"View more comments"/"Xem thêm bình luận" de load them
@@ -3186,41 +3212,59 @@ async function __scraperExpandComments(root, maxClicks = SCRAPE_COMMENTS_LOAD_CL
   return clicks;
 }
 
-// Lay comment tu 1 post element
+// Lay comment tu 1 post element (kem ca dialog comment dang mo ben ngoai feed)
 async function __scraperExtractComments(postEl, opts = {}) {
   const comments = [];
-  try {
-    // Tim nut mo khung binh luan (Comment / Bình luận) — click de mo comment
-    const commentButtons = Array.from(postEl.querySelectorAll('div[role="button"], span')).filter((el) => {
-      const t = (el.innerText || '').trim().toLowerCase();
-      return /^(\d+)\s*(comments|bình luận)$/.test(t) || t === 'comment' || t === 'bình luận';
-    });
-    if (commentButtons.length && opts.openComments !== false) {
-      try { commentButtons[0].click(); await new Promise(r => setTimeout(r, 1500)); } catch (_) {}
+  const seen = new Set();
+  const collectFrom = (roots) => {
+    for (const root of roots) {
+      for (const c of __scraperFindCommentContainers(root)) {
+        if (__scraperAbort) return;
+        try {
+          const label = c.getAttribute('aria-label') || '';
+          // Author la phan sau label: "Comment by NAME" / "Bình luận của NAME"
+          let author = '';
+          const m = label.match(/(?:comment by|bình luận của|reply by|phản hồi của)\s+(.+?)(?:\s+on\s+|$)/i);
+          if (m) author = m[1].trim();
+          const text = (c.innerText || '').trim();
+          if (!text) continue;
+          // Bo phan header trung author
+          const body = author ? text.replace(new RegExp('^' + author.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\n?'), '') : text;
+          const key = author + '::' + body.slice(0, 80);
+          if (seen.has(key)) continue;
+          seen.add(key);
+          comments.push({ author, text: body });
+        } catch (_) {}
+      }
     }
+  };
 
-    // Mo rong binh luan
-    await __scraperExpandComments(postEl, opts.maxCommentClicks ?? SCRAPE_COMMENTS_LOAD_CLICKS_MAX);
+  try {
+    // 1) Comment inline ngay trong post (permalink / feed hien comment san)
+    collectFrom([postEl]);
 
-    const containers = __scraperFindCommentContainers(postEl);
-    const seen = new Set();
-    for (const c of containers) {
-      if (__scraperAbort) break;
-      try {
-        const label = c.getAttribute('aria-label') || '';
-        // Author la phan dau cua label: "Comment by NAME" / "Bình luận của NAME"
-        let author = '';
-        const m = label.match(/^(?:comment by|bình luận của|reply by|phản hồi của)\s+(.+)$/i);
-        if (m) author = m[1].trim();
-        const text = (c.innerText || '').trim();
-        if (!text) continue;
-        // Bo phan header trung author
-        const body = author ? text.replace(new RegExp('^' + author.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\n?'), '') : text;
-        const key = author + '::' + body.slice(0, 80);
-        if (seen.has(key)) continue;
-        seen.add(key);
-        comments.push({ author, text: body });
-      } catch (_) {}
+    // 2) Khong co inline -> bam nut "N bình luận" mo khung comment (dialog)
+    if (comments.length === 0 && opts.openComments !== false) {
+      const commentButtons = Array.from(postEl.querySelectorAll("div[role='button'], span, a")).filter((el) => {
+        const t = (el.innerText || '').trim().toLowerCase();
+        const l = ((el.getAttribute && el.getAttribute('aria-label')) || '').trim().toLowerCase();
+        return /^(\d[\d.,]*)?\s*(bình luận|comments?|phản hồi|replies?)$/.test(t) ||
+               t === 'xem bình luận' || t === 'view comments' ||
+               /^(\d[\d.,]*)?\s*(bình luận|comments?)$/.test(l);
+      });
+      if (commentButtons.length) {
+        try {
+          commentButtons[0].click();
+          await new Promise(r => setTimeout(r, 1800));
+        } catch (_) {}
+        const dialogs = __scraperGetDialogs();
+        const target = dialogs.length ? dialogs[0] : postEl;
+        // Mo rong binh luan trong dialog (hoac trong post neu khong co dialog)
+        await __scraperExpandComments(target, opts.maxCommentClicks ?? SCRAPE_COMMENTS_LOAD_CLICKS_MAX);
+        collectFrom(dialogs.length ? dialogs : [postEl]);
+        // DONG dialog de feed khong bi chan (day chinh la ly do truoc day scraper dung yen o bai dau)
+        if (dialogs.length) await __scraperCloseDialogs();
+      }
     }
   } catch (_) {}
   return comments;
@@ -3307,11 +3351,34 @@ async function __scraperScrapeCurrentPage(opts = {}) {
     await new Promise(r => setTimeout(r, 1000));
   }
 
+  // Scroll tu dong 1 buoc: cuon cua so so; neu khong di chuyen thi thu scroll container cua feed
+  const scrollOneStep = async () => {
+    const sc = document.scrollingElement || document.documentElement;
+    const before = sc.scrollTop;
+    window.scrollBy({ top: Math.max(600, Math.round(window.innerHeight * 0.8)), behavior: 'instant' });
+    await new Promise(r => setTimeout(r, 400));
+    if ((document.scrollingElement || document.documentElement).scrollTop <= before + 10) {
+      try {
+        let el = document.querySelector(feedSel);
+        while (el && el !== document.body) {
+          const st = getComputedStyle(el);
+          if (/(auto|scroll)/.test(st.overflowY || '') && el.scrollHeight > el.clientHeight + 50) {
+            el.scrollTop += el.clientHeight;
+            break;
+          }
+          el = el.parentElement;
+        }
+      } catch (_) {}
+    }
+  };
+
   await collectOnce();
   for (let s = 0; s < maxScrolls && !__scraperAbort; s++) {
-    window.scrollBy({ top: document.body.scrollHeight, behavior: 'instant' });
+    await scrollOneStep();
     await new Promise(r => setTimeout(r, scrollDelayMs));
     await collectOnce();
+    // An toan: dialog comment bat khong dong se chan feed -> dong di
+    if (__scraperGetDialogs().length) await __scraperCloseDialogs();
     try {
       const progress = { scraperProgress: { scroll: s + 1, maxScrolls, postsSoFar: posts.length } };
       chrome.storage.local.set(progress);
