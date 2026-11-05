@@ -1,4 +1,36 @@
-# Facebook Comment Scraper (v1.24.0 — MO TUNG BAI + ALL COMMENTS + 2-COL CSV)
+# Facebook Comment Scraper (v1.26.0)
+
+## Moi o v1.26.0 — tach han khoi extension goc
+- Trinh duyet bao "Tien ich nay co chua phan mem doc hai" vi manifest giu `key` cua
+  extension goc "Facebook Groups Bulk Poster" -> cung ID `lnjjcckgbpppdjcijhakcbnkggbdhccj`,
+  ID nay nam trong blocklist malware cua Google.
+- Cac ban truoc ghi "da go telemetry" nhung background.js THUC TE van con: Mixpanel,
+  `server.fbgroupbulkposter.com/telemetry`, upload snapshot (`/api/snapshots`), gui HTML
+  trang len `/dom-analyze`, doc/xoa cookie, Firebase/Firestore, credits.
+- Da sua: viet lai background.js chi con luong cao (~425 dong, khong fetch ra ngoai).
+  Manifest moi: bo `key`, `update_url`, `oauth2`, `externally_connectable`, quyen
+  `cookies`/`system.display`; host permission chi con facebook.com. Doi ten + icon moi,
+  xoa `_locales` va popup cua ban goc.
+- Sau khi cai lai, extension co ID MOI -> phai "Remove" ban cu roi "Load unpacked" lai.
+
+
+## Moi o v1.25.0
+- Sua "khong cao duoc comment": nhan dien nhan moi cua FB ("Bình luận dưới tên X",
+  "Phản hồi dưới tên X", "Comment by X 2 hours ago") + fallback theo cau truc
+  ([role=article] co link comment_id). Text comment lay tu div[dir=auto] cua chinh
+  comment (khong dinh reply / "Thích · Phản hồi · 2 giờ").
+- Tai het comment + reply: bam moi nut "Xem thêm bình luận", "Xem tất cả N phản hồi",
+  "N phản hồi", "View all N replies"... + cuon xuong day de FB lazy-load; thu thap dan.
+- Sua "chi cao duoc 1 bai":
+  * Cua so cao bi che -> Chrome ngung render -> FB khong tai them bai. Mac dinh cua so
+    cao duoc dua len tren (tuy chon "Cửa sổ cào"). Dung che/thu nho cua so do.
+  * Link bai trong feed la href="#" cho den khi hover -> gia lap hover de lay permalink.
+  * Nhan dien bai: [role=feed] > div, fallback div[aria-posinset], FeedUnit.
+- Dan link bai viet don le -> bo qua phase 1, cao thang comment cua bai.
+- Moi comment co them: commentId, isReply; link comment da bo tham so tracking.
+- Tuy chon moi: thoi gian toi da / bai (mac dinh 240s); click mo comment toi da 150.
+- Test: `node --test tests/scraper-core.test.js` (22 test).
+
 
 Fork tu "Facebook Groups Bulk Poster & Scheduler" v1.19.7. Tu v1.21.0 da GO BO
 DANG BAI hoan toan; khong con telemetry (Sentry/Mixpanel), khong remote config,
@@ -79,7 +111,7 @@ khong Firebase.
 ## Luu y
 - Cao du lieu ca nhan dung voi muc dich nghien cuu; khong lam dung (spam, tu dong thao tac
   qua muc cho phep cua Facebook) vi co the bi checkpoint/khoa tai khoan.
-- Extension goc goi telemetry (Mixpanel/Sentry/server fbgroupbulkposter.com) — flow scraper
-  KHONG goi them bat ky server nao: du lieu chi luu trong chrome.storage cua may ban.
+- Tu v1.26.0 extension khong goi bat ky server nao: du lieu chi luu trong
+  chrome.storage cua may ban (kiem tra: grep "fetch(" chi con doc file config noi bo).
 - Selector DOM (aria-label "Comment by"/"Bình luận của", nut "N bình luận", dialog close)
   chua duoc test tren Facebook that — can chay thu 1 URL truoc khi cao hang loat.

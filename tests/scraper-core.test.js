@@ -83,3 +83,71 @@ test('resultsToCsvRows: post without comments -> single empty row with link', ()
   assert.strictEqual(rows.length, 2);
   assert.deepStrictEqual(rows[1], ['""', '"link1"']);
 });
+
+// ── v1.25: nhãn comment FB mới (EN + VI) ──
+test('parseAuthorFromLabel: VI "dưới tên" + đuôi thời gian', () => {
+  assert.strictEqual(SC.parseAuthorFromLabel('Bình luận dưới tên Nguyễn Văn A vào 3 giờ trước'), 'Nguyễn Văn A');
+  assert.strictEqual(SC.parseAuthorFromLabel('Phản hồi dưới tên Lê B 2 ngày trước'), 'Lê B');
+  assert.strictEqual(SC.parseAuthorFromLabel('Comment by Alice Nguyen 2 hours ago'), 'Alice Nguyen');
+  assert.strictEqual(SC.parseAuthorFromLabel('Reply by Bob a day ago'), 'Bob');
+});
+test('isCommentLabel / isReplyLabel', () => {
+  assert.ok(SC.isCommentLabel('Bình luận dưới tên X'));
+  assert.ok(!SC.isCommentLabel('Viết bình luận'));
+  assert.ok(SC.isReplyLabel('Phản hồi dưới tên X'));
+  assert.ok(!SC.isReplyLabel('Comment by X'));
+});
+test('cleanCommentText bỏ dòng UI', () => {
+  assert.strictEqual(SC.cleanCommentText('Alice\nhay quá\nThích\nPhản hồi\n3 giờ', 'Alice'), 'hay quá');
+  assert.strictEqual(SC.cleanCommentText('great\nLike\nReply\n2h', ''), 'great');
+});
+test('buildCommentKey ưu tiên comment id', () => {
+  assert.strictEqual(SC.buildCommentKey('A', 'x', '123'), 'id:123');
+});
+
+// ── URL bài viết ──
+test('isPostUrl nhận diện permalink, không nhận group feed', () => {
+  assert.ok(SC.isPostUrl('https://www.facebook.com/groups/123/posts/456/'));
+  assert.ok(SC.isPostUrl('https://www.facebook.com/groups/abc/permalink/456/'));
+  assert.ok(SC.isPostUrl('https://www.facebook.com/somepage/posts/pfbid02abc'));
+  assert.ok(SC.isPostUrl('https://www.facebook.com/permalink.php?story_fbid=1&id=2'));
+  assert.ok(SC.isPostUrl('https://www.facebook.com/photo/?fbid=99&set=a.1'));
+  assert.ok(SC.isPostUrl('https://www.facebook.com/share/p/1AbCd/'));
+  assert.ok(!SC.isPostUrl('https://www.facebook.com/groups/123'));
+  assert.ok(!SC.isPostUrl('https://www.facebook.com/somepage'));
+  assert.ok(!SC.isPostUrl(''));
+});
+test('normalizePostUrl bỏ tracking, giữ id', () => {
+  assert.strictEqual(
+    SC.normalizePostUrl('https://www.facebook.com/groups/1/posts/2/?__cft__[0]=x&__tn__=R&comment_id=5'),
+    'https://www.facebook.com/groups/1/posts/2/');
+  assert.strictEqual(
+    SC.normalizePostUrl('https://www.facebook.com/photo/?fbid=99&set=a.1&__tn__=x'),
+    'https://www.facebook.com/photo/?fbid=99&set=a.1');
+});
+test('extractCommentId + buildCommentLink', () => {
+  const href = 'https://www.facebook.com/groups/1/posts/2/?comment_id=10&reply_comment_id=11&__cft__=z';
+  assert.strictEqual(SC.extractCommentId(href), '11');
+  assert.strictEqual(SC.extractCommentId('https://x/?comment_id=10'), '10');
+  assert.strictEqual(SC.buildCommentLink(href), 'https://www.facebook.com/groups/1/posts/2/?comment_id=10&reply_comment_id=11');
+  assert.strictEqual(SC.buildCommentLink('https://www.facebook.com/x'), '');
+});
+
+// ── Số đếm + nút mở thêm ──
+test('parseCount hiểu K / N / dấu phẩy', () => {
+  assert.strictEqual(SC.parseCount('1,2K bình luận'), 1200);
+  assert.strictEqual(SC.parseCount('3.4K comments'), 3400);
+  assert.strictEqual(SC.parseCount('120 bình luận'), 120);
+  assert.strictEqual(SC.parseCount('1.234'), 1234);
+  assert.strictEqual(SC.parseCount('abc'), null);
+});
+test('isExpandButtonText: EN + VI, bỏ qua "Ẩn"', () => {
+  for (const t of ['View more comments', 'View all 5 replies', 'View 1 reply', '3 Replies', 'See more comments',
+    'View previous comments', 'Bob replied · 2 Replies', 'Xem thêm bình luận', 'Xem tất cả 12 phản hồi',
+    'Xem 1 phản hồi', '4 phản hồi', 'Xem các bình luận trước', 'An đã trả lời · 3 phản hồi']) {
+    assert.ok(SC.isExpandButtonText(t), t);
+  }
+  for (const t of ['Hide replies', 'Ẩn phản hồi', 'Reply', 'Phản hồi', 'Write a comment…', '']) {
+    assert.ok(!SC.isExpandButtonText(t), t);
+  }
+});
