@@ -28,7 +28,7 @@ function renderResults(results) {
       const flag = (exp != null && got < exp) ? ` <span style="color:#e68a00" title="FB hiển thị ${exp} comment nhưng chỉ cào được ${got} — có thể cần tăng maxCommentClicks">⚠️</span>` : '';
       html += `<div class="post-meta">💬 ${got}${exp != null ? '/' + exp : ''} comment${flag} • 👍 ${p.numReactions ?? '?'} • 🖼 ${p.images?.length || 0} ảnh</div>`;
       for (const c of (p.comments || [])) {
-        html += `<div class="comment"><b>${esc(c.author)}</b> <span>${esc((c.text || '').slice(0, 300))}</span></div>`;
+        html += `<div class="comment"${c.isReply ? ' style="margin-left:24px"' : ''}>${c.isReply ? '↳ ' : ''}<b>${esc(c.author)}</b> <span>${esc((c.text || '').slice(0, 300))}</span></div>`;
       }
       html += `</div>`;
     }
@@ -78,7 +78,9 @@ $('btnStart').onclick = () => {
     maxScrolls: parseInt($('maxScrolls').value, 10) || 10,
     scrollDelayMs: 2500,
     withComments: $('withComments').value === 'yes',
-    maxCommentClicks: parseInt($('maxCommentClicks').value, 10) || 30,
+    maxCommentClicks: parseInt($('maxCommentClicks').value, 10) || 150,
+    postTimeBudgetSec: parseInt($('postTimeBudgetSec').value, 10) || 240,
+    focusWindow: $('focusWindow').value === 'yes',
   };
   const timeInSeconds = parseInt($('timeInSeconds').value, 10) || 30;
   chrome.runtime.sendMessage(
