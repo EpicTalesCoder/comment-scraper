@@ -160,7 +160,7 @@ function __scraperParseComment(c, postUrl) {
   // Nội dung: các div[dir=auto] (thân comment) thuộc chính comment, lấy lớp ngoài cùng
   const parts = Array.from(c.querySelectorAll('div[dir="auto"]')).filter((el) => __ownedBy(c, el) && !el.closest('a'));
   const top = parts.filter((el) => !parts.some((o) => o !== el && o.contains(el)));
-  let text = top.map((el) => (el.innerText || '').trim()).filter(Boolean).join('\n');
+  let text = ScraperCore.stripUiLines(top.map((el) => (el.innerText || '').trim()).filter(Boolean).join('\n'));
   if (!text) {
     // Fallback: innerText bỏ reply lồng bên trong + dòng UI (Thích/Phản hồi/2 giờ...)
     const clone = c.cloneNode(true);
