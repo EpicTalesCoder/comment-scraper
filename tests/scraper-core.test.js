@@ -151,3 +151,28 @@ test('isExpandButtonText: EN + VI, bỏ qua "Ẩn"', () => {
     assert.ok(!SC.isExpandButtonText(t), t);
   }
 });
+
+// ── Lọc dòng rác giao diện FB (chỉ lọc dòng toàn token UI) ──
+test('isUiJunkLine: dòng UI dính liền -> rác', () => {
+  for (const t of ['· 5 giờThíchTrả lờiChia sẻ1', '· 5 giờThíchTrả lờiChia sẻ', '2 ngàyThíchPhản hồi',
+    '· 3 tuần trướcThích Trả lời', '5hLikeReplyShare2', '· Đã chỉnh sửa', 'Thích', '· 1 phút', '3 giờ', '·']) {
+    assert.ok(SC.isUiJunkLine(t), t);
+  }
+});
+test('isUiJunkLine: dòng có nội dung thật -> giữ', () => {
+  for (const t of ['Tôi thích bài này', 'Shop trả lời giúp em với', 'sản phẩm tốt 5 sao', '100',
+    'ok 1 giờ nữa mình qua', 'Chia sẻ kinh nghiệm hay quá']) {
+    assert.ok(!SC.isUiJunkLine(t), t);
+  }
+});
+test('stripUiLines chỉ bỏ dòng rác, giữ dòng nội dung', () => {
+  assert.strictEqual(SC.stripUiLines('Hàng đẹp lắm\n· 5 giờThíchTrả lờiChia sẻ1'), 'Hàng đẹp lắm');
+  assert.strictEqual(SC.stripUiLines('dòng 1\ndòng 2 thích quá'), 'dòng 1\ndòng 2 thích quá');
+  assert.strictEqual(SC.stripUiLines('· 5 giờThíchTrả lờiChia sẻ1'), '');
+});
+test('resultsToCsvRows bỏ comment chỉ toàn rác UI', () => {
+  const rows = SC.resultsToCsvRows([{ url: 'u', posts: [{ postUrl: 'p', comments: [
+    { text: '· 5 giờThíchTrả lờiChia sẻ1' }, { text: 'Đẹp quá\n2 giờThíchTrả lời' },
+  ] }] }]);
+  assert.deepStrictEqual(rows.slice(1), [['"Đẹp quá"', '"p"']]);
+});

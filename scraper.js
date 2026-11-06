@@ -11,7 +11,7 @@ function esc(s) {
 }
 
 function renderResults(results) {
-  lastResults = results || [];
+  lastResults = ScraperCore.cleanResults(results);
   const totalPosts = lastResults.reduce((a, r) => a + (r.posts?.length || 0), 0);
   const totalComments = lastResults.reduce((a, r) => a + (r.posts || []).reduce((b, p) => b + (p.comments?.length || 0), 0), 0);
   const totalExpected = lastResults.reduce((a, r) => a + (r.posts || []).reduce((b, p) => b + (p.expectedComments ?? p.numComments ?? 0), 0), 0);
@@ -102,9 +102,26 @@ $('btnStart').onclick = () => {
 
 $('btnStop').onclick = () => {
   chrome.runtime.sendMessage({ action: 'stopScrapePosts' }, () => {
-    $('status').textContent = 'Đã yêu cầu dừng...';
+    void chrome.runtime.lastError;
+    $('status').textContent = 'Đang dừng — lưu phần đã cào...';
+    $('btnStart').disabled = false;
   });
 };
+
+// Trạng thái 'started' trong storage nhưng background không còn run nào
+// (service worker bị Chrome tắt giữa chừng) -> gỡ kẹt để chạy lại được
+function syncRunState() {
+  chrome.runtime.sendMessage({ action: 'getScrapeState' }, (resp) => {
+    if (chrome.runtime.lastError || !resp) return;
+    chrome.storage.local.get(['isPostingInProgress'], (r) => {
+      if (!resp.running && r?.isPostingInProgress === 'started') {
+        chrome.storage.local.set({ isPostingInProgress: 'done', postingStatus: 'Lần cào trước bị gián đoạn — có thể chạy lại.' });
+      }
+    });
+  });
+}
+syncRunState();
+setInterval(syncRunState, 15000);
 
 function download(filename, content, mime) {
   const blob = new Blob([content], { type: mime });
@@ -116,7 +133,7 @@ function download(filename, content, mime) {
 }
 
 $('btnJson').onclick = () => {
-  download('fb-scrape-' + Date.now() + '.json', JSON.stringify(lastResults, null, 2), 'application/json');
+  download('fb-scrape-' + Date.now() + '.json', JSON.stringify(ScraperCore.cleanResults(lastResults), null, 2), 'application/json');
 };
 
 $('btnCsv').onclick = () => {
