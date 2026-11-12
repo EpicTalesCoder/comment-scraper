@@ -48,6 +48,13 @@ window.__myExtensionContentLoaded = true;
 
 let __scraperActive = false;
 let __scraperAbort = false;
+// Đang quét 1 bài cụ thể: bỏ qua mọi thứ nằm trong feed (vd trang multi_permalinks
+// hiện kèm feed group bên dưới) để không lẫn comment của bài khác
+let __scraperSinglePostMode = false;
+
+function __inFeed(el) {
+  return __scraperSinglePostMode && !!(el && el.closest && el.closest('[role="feed"]'));
+}
 const SCRAPE_SCROLL_STEP_DELAY_MS = 2500;
 const SCRAPE_MAX_SCROLLS_DEFAULT = 10;
 const SCRAPE_COMMENTS_LOAD_CLICKS_MAX = 150;
@@ -107,6 +114,7 @@ function __isVisible(el) {
 function __scraperExpandAllSeeMore(root) {
   try {
     const els = Array.from(root.querySelectorAll('div[role="button"], span[role="button"]')).filter((el) => {
+      if (__inFeed(el)) return false;
       const t = (el.innerText || '').trim().toLowerCase();
       return t === 'see more' || t === 'xem thêm';
     });
@@ -134,7 +142,7 @@ function __scraperFindCommentContainers(root) {
       if (ids.size === 1) found.add(art);
     });
   } catch (_) {}
-  return Array.from(found);
+  return Array.from(found).filter((el) => !__inFeed(el));
 }
 
 // Phần tử thuộc "chính" comment này (không thuộc reply/comment lồng bên trong)
@@ -229,7 +237,7 @@ function __firstLine(el) {
 async function __scraperSelectAllCommentsFilter(scope) {
   try {
     const trigger = Array.from(scope.querySelectorAll('div[role="button"], span[role="button"]'))
-      .find((el) => __isVisible(el) && __SCRAPER_FILTER_TRIGGER_RE.test((el.innerText || '').trim()));
+      .find((el) => __isVisible(el) && !__inFeed(el) && __SCRAPER_FILTER_TRIGGER_RE.test((el.innerText || '').trim()));
     if (!trigger) return 'not-found';
     const cur = (trigger.innerText || '').trim();
     if (__SCRAPER_FILTER_ALL_RE.test(cur)) return 'already-all';
@@ -272,15 +280,23 @@ function __scraperScrollableIn(scope) {
 
 function __scraperScrollToBottom(scope) {
   const sc = scope !== document ? __scraperScrollableIn(scope) : null;
-  if (sc) sc.scrollTop = sc.scrollHeight;
-  else window.scrollTo(0, (document.scrollingElement || document.documentElement).scrollHeight);
+  if (sc) { sc.scrollTop = sc.scrollHeight; return; }
+  // Trang bài có feed bên dưới: chỉ cuộn tới comment cuối của bài, không cuộn
+  // xuống đáy trang (sẽ tải thêm bài khác của feed)
+  if (__scraperSinglePostMode && document.querySelector('[role="feed"]')) {
+    const cs = __scraperFindCommentContainers(scope);
+    const last = cs[cs.length - 1];
+    if (last) { last.scrollIntoView({ block: 'end' }); window.scrollBy(0, 300); }
+    return;
+  }
+  window.scrollTo(0, (document.scrollingElement || document.documentElement).scrollHeight);
 }
 
 function __scraperFindExpandButton(scope, clickCounts) {
   const els = scope.querySelectorAll('div[role="button"], span[role="button"], a[role="button"]');
   for (const el of els) {
     if ((clickCounts.get(el) || 0) >= 3) continue;
-    if (!__isVisible(el) || el.closest('[contenteditable="true"], form')) continue;
+    if (!__isVisible(el) || __inFeed(el) || el.closest('[contenteditable="true"], form')) continue;
     if (ScraperCore.isExpandButtonText(el.innerText)) return el;
   }
   return null;
@@ -356,7 +372,7 @@ function __scraperPostUrlFrom(anchors) {
 
 // Lấy thông tin bài (nội dung/ảnh/số comment) — bỏ qua phần nằm trong comment
 function __scraperExtractPostInfo(postEl, commentEls) {
-  const inComment = (el) => commentEls.some((c) => c.contains(el));
+  const inComment = (el) => __inFeed(el) || commentEls.some((c) => c.contains(el));
   let content = '';
   for (const sel of config.contentSelectors || defaultConfig.contentSelectors) {
     const el = Array.from(postEl.querySelectorAll(sel)).find((x) => !inComment(x));
@@ -524,6 +540,15 @@ function __scraperOpenPostScope() {
 
 // ═══ PHASE 2: QUÉT 1 BÀI ĐÃ MỞ (trang permalink / photo mở thật) ═══
 async function __scraperScrapeOpenPost(opts = {}) {
+  __scraperSinglePostMode = true;
+  try {
+    return await __scraperScrapeOpenPostInner(opts);
+  } finally {
+    __scraperSinglePostMode = false;
+  }
+}
+
+async function __scraperScrapeOpenPostInner(opts) {
   const deadline = __scraperMakeDeadline({ timeBudgetMs: opts.timeBudgetMs || 240000 });
   const postUrl = ScraperCore.normalizePostUrl(location.href) || location.href;
   const comments = [];
@@ -562,7 +587,7 @@ async function __scraperScrapeOpenPost(opts = {}) {
     const labels = document.querySelectorAll('[role="article"]').length;
     __scraperLog(`chẩn đoán: ${labels} [role=article], ${document.querySelectorAll('a[href*="comment_id="]').length} link comment_id, scope=${scope === document ? 'document' : scope.getAttribute('role') || scope.tagName}`);
   }
-  return { comments, info };
+  return { comments, info: { ...info, postUrl } };
 }
 
 // Handler chinh

@@ -1,9 +1,26 @@
 const $ = (id) => document.getElementById(id);
 let lastResults = [];
 
+const KIND_LABEL = {
+  post: '📝 Bài   — chỉ cào comment của bài này',
+  group: '👥 Group — cào feed + comment các bài',
+  invalid: '⚠️ Không phải link Facebook — sẽ bị bỏ qua',
+};
+
+function readUrls() {
+  return $('urls').value.split('\n').map((s) => s.trim()).filter(Boolean);
+}
+
+// Hiện ngay mỗi link được hiểu là group hay bài
+function renderUrlKinds() {
+  $('urlKinds').textContent = readUrls().map((u) => `${KIND_LABEL[ScraperCore.classifyUrl(u)]}: ${u}`).join('\n');
+}
+$('urls').addEventListener('input', renderUrlKinds);
+
 // Restore urls
 chrome.storage.local.get(['scraperUrls'], (r) => {
   if (r?.scraperUrls) $('urls').value = r.scraperUrls;
+  renderUrlKinds();
 });
 
 function esc(s) {
@@ -18,7 +35,8 @@ function renderResults(results) {
   let html = `<div class="summary"><b>${lastResults.length}</b> URL(s) • <b>${totalPosts}</b> bài viết • <b>${totalComments}</b> bình luận` +
     (totalExpected > 0 ? ` <span style="color:#65676b">(FB hiển thị ~${totalExpected})</span>` : '') + `</div>`;
   for (const r of lastResults) {
-    html += `<div style="font-weight:600;margin-top:8px;color:#050505">${esc(r.url)} ${r.error ? '<span style="color:#fa383e">— lỗi: ' + esc(r.error) + '</span>' : ''}</div>`;
+    const kind = r.mode || ScraperCore.classifyUrl(r.url);
+    html += `<div style="font-weight:600;margin-top:8px;color:#050505">${kind === 'post' ? '📝 Bài' : '👥 Group'} • ${esc(r.url)} ${r.error ? '<span style="color:#fa383e">— lỗi: ' + esc(r.error) + '</span>' : ''}</div>`;
     for (const p of (r.posts || [])) {
       html += `<div class="post-item">`;
       if (p.postUrl) html += `<div class="post-url"><a href="${esc(p.postUrl)}" target="_blank">${esc(p.postUrl)}</a></div>`;
@@ -71,7 +89,7 @@ function pollStatus() {
 pollStatus();
 
 $('btnStart').onclick = () => {
-  const urls = $('urls').value.split('\n').map(s => s.trim()).filter(Boolean);
+  const urls = readUrls().filter((u) => ScraperCore.classifyUrl(u) !== 'invalid');
   if (!urls.length) { $('status').textContent = '⚠️ Hãy nhập ít nhất 1 URL Facebook.'; return; }
   chrome.storage.local.set({ scraperUrls: $('urls').value });
   const options = {
