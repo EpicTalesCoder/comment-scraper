@@ -350,18 +350,21 @@ async function initiateScrapePostsAction(run, request) {
 
   for (let i = 0; i < urls.length && !run.stopped; i++) {
     const url = urls[i];
+    // Link bài -> chỉ cào comment của đúng bài đó; link group/page -> cào feed
     const singlePost = ScraperCore.isPostUrl(url);
-    status(`Scraping ${i + 1} / ${urls.length}: ${url}`);
+    const mode = singlePost ? 'post' : 'group';
+    const openUrl = singlePost ? ScraperCore.canonicalPostUrl(url) : url;
+    status(`${singlePost ? 'Bài' : 'Group'} ${i + 1} / ${urls.length}: ${url}`);
     // Progress theo URL cho UI (key rieng de content script khong ghi de)
     save({ scrapeUrlProgress: { urlIndex: i + 1, totalUrls: urls.length, url }, scrapePostProgress: null });
 
     let tab;
     try {
-      tab = await createTabWithRetry(url, 3, 2000, { focused: focusWindow, run });
+      tab = await createTabWithRetry(openUrl, 3, 2000, { focused: focusWindow, run });
     } catch (error) {
       if (run.stopped) break;
       console.error(`[Scrape] Failed to create tab for ${url}. Skipping.`, error);
-      allResults.push({ url, error: 'Tab creation failed', posts: [] });
+      allResults.push({ url, mode, error: 'Tab creation failed', posts: [] });
       continue;
     }
 
@@ -372,7 +375,7 @@ async function initiateScrapePostsAction(run, request) {
 
       // PHASE 1: thu danh sách bài + permalink (link bài đơn lẻ thì bỏ qua)
       if (singlePost) {
-        posts = [{ postUrl: url, content: '', images: [], numComments: null, numReactions: null, comments: [] }];
+        posts = [{ postUrl: openUrl, content: '', images: [], numComments: null, numReactions: null, comments: [] }];
       } else {
         const r1 = await runContentStep(
           run,
@@ -389,7 +392,8 @@ async function initiateScrapePostsAction(run, request) {
       status(`Tìm thấy ${posts.length} bài (${withUrl} có link) — mở từng bài để quét comment...`);
 
       // PHASE 2: MO TUNG BAI VIET (navigate tab tới postUrl) + quét full comment
-      if (options.withComments !== false) {
+      // Link bài: luôn cào comment (đó là mục đích duy nhất của link bài)
+      if (singlePost || options.withComments !== false) {
         for (let j = 0; j < posts.length && !run.stopped; j++) {
           const p = posts[j];
           if (!p.postUrl) continue;
@@ -414,6 +418,8 @@ async function initiateScrapePostsAction(run, request) {
             if (got.length >= (p.comments || []).length) p.comments = got;
             const info = r2.data && r2.data.scrapedPostInfo;
             if (info) {
+              // Link rút gọn (share/p, fb.watch) -> lưu permalink thật sau chuyển hướng
+              if (singlePost && info.postUrl && ScraperCore.isPostUrl(info.postUrl)) p.postUrl = info.postUrl;
               if (!p.content) p.content = info.content;
               if (!p.images || !p.images.length) p.images = info.images || [];
               if (p.numComments == null) p.numComments = info.numComments;
@@ -428,14 +434,14 @@ async function initiateScrapePostsAction(run, request) {
           await runSleep(run, 2000); // nhịp nhẹ giữa các bài, tránh spam FB
         }
       }
-      allResults.push({ url, posts });
+      allResults.push({ url, mode, posts });
       status(`Scraped ${posts.length} posts, ${posts.reduce((a, p) => a + (p.comments?.length || 0), 0)} comments from ${url}`);
     } catch (error) {
       if (run.stopped) {
-        if (posts.length) allResults.push({ url, posts });
+        if (posts.length) allResults.push({ url, mode, posts });
       } else {
         console.error('[Scrape] Flow failed for', url, error);
-        allResults.push({ url, error: String(error?.message || error), posts });
+        allResults.push({ url, mode, error: String(error?.message || error), posts });
       }
     }
     save({ scrapeResults: allResults });

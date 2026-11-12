@@ -176,3 +176,44 @@ test('resultsToCsvRows bỏ comment chỉ toàn rác UI', () => {
   ] }] }]);
   assert.deepStrictEqual(rows.slice(1), [['"Đẹp quá"', '"p"']]);
 });
+
+// ── Link group vs link bài ──
+test('classifyUrl: link bài', () => {
+  for (const u of [
+    'https://www.facebook.com/groups/123/posts/456/',
+    'https://www.facebook.com/groups/abc/permalink/456/',
+    'https://www.facebook.com/groups/123/?multi_permalinks=456',
+    'https://www.facebook.com/reel/123',
+    'https://www.facebook.com/watch/?v=1',
+    'https://m.facebook.com/story.php?story_fbid=1&id=2',
+    'https://fb.com/groups/1/posts/2',
+    'https://www.facebook.com/share/p/1AbC/',
+    'https://www.facebook.com/somepage/videos/789/',
+    'https://www.facebook.com/somepage/posts/pfbid02abc',
+    'https://www.facebook.com/photo/?fbid=99&set=a.1',
+    'https://www.facebook.com/somepage/photos/a.1/2/',
+    'https://fb.watch/abc/',
+  ]) assert.strictEqual(SC.classifyUrl(u), 'post', u);
+});
+test('classifyUrl: link group/page/profile', () => {
+  for (const u of [
+    'https://www.facebook.com/groups/123',
+    'https://www.facebook.com/groups/123/?sorting_setting=CHRONOLOGICAL',
+    'https://www.facebook.com/somepage',
+    'https://www.facebook.com/somepage/photos/',
+    'https://www.facebook.com/somepage/videos/',
+    'https://www.facebook.com/profile.php?id=1',
+  ]) assert.strictEqual(SC.classifyUrl(u), 'group', u);
+  assert.strictEqual(SC.classifyUrl('https://google.com/groups/1/posts/2'), 'invalid');
+  assert.strictEqual(SC.classifyUrl('abc'), 'invalid');
+});
+test('canonicalPostUrl: mở đúng trang chỉ có bài đó', () => {
+  assert.strictEqual(SC.canonicalPostUrl('https://www.facebook.com/groups/123/?multi_permalinks=456,789&ref=x'),
+    'https://www.facebook.com/groups/123/posts/456/');
+  assert.strictEqual(SC.canonicalPostUrl('https://m.facebook.com/groups/1/posts/2/?__cft__=x'),
+    'https://www.facebook.com/groups/1/posts/2/');
+  assert.strictEqual(SC.canonicalPostUrl('https://fb.com/groups/1/posts/2'),
+    'https://www.facebook.com/groups/1/posts/2');
+  assert.strictEqual(SC.canonicalPostUrl('https://www.facebook.com/permalink.php?story_fbid=1&id=2&__tn__=x'),
+    'https://www.facebook.com/permalink.php?story_fbid=1&id=2');
+});
